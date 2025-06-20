@@ -63,6 +63,7 @@
    - nickname에 해당하는 user_id를 찾아 로그인한다.
    - 해당하는 nickname이 없으면 로그인이 실패한다.
    - nickname에 해당하는 password 일치하지 않으면 로그인이 실패한다.
+   - 중복 로그인시 실패한다.
 4. Response body
    - status (string): success, failed
    - user_id: 생성 성공시, 반환
@@ -71,7 +72,8 @@
 ```
 {
   "status": "success",
-  "user_id": 1
+  "user_id": 1,
+  "login":"login complete"
 }
 ```
 
@@ -89,19 +91,50 @@
 }
 ```
 
-## 사용자 정보 조회
+## 로그아웃
 
 1. Endpoint
-   - GET /users/<user_id>
-     - user_id (int): 조회할 사용자 id
+   - POST /users/logout
 2. Request body
    - 없음
 3. Description
-   - user_id에 해당하는 사용자 계정을 조회한다.
-   - user_id가 없으면 조회가 실패한다.
+   - 로그인되었던 세션을 제거한다.
+   - 중복으로 로그아웃되면 실패한다.
+4. Response body
+   - status (string): success, failed
+   - reason (string): 실패시, 실패 원인
+
+```
+{
+   "status": "success",
+   "logout":"logout complete."
+}
+```
+
+```
+{
+   "status": "failed",
+   "reason": "Not currently logged in"
+}
+```
+
+## 사용자 정보 조회
+
+1. Endpoint
+   - GET /users
+2. Request body
+   - search (string) : 검색할 닉네임 혹은 이름름
+3. Description
+   - search에 해당하는 사용자 계정을 조회한다.
+   - search가 없으면 전체 사용자 조회한다.
 4. Response body
    - status (string): success, failed
    - user (object): 조회할 사용자 정보
+     - user_id (int)
+     - nickname (string)
+     - name (string)
+     - age (int)
+     - email (string)
    - reason (string): 실패시, 실패 원인
 
 ```
@@ -198,14 +231,13 @@
 1. Endpoint
    - POST /posts
 2. Request body
-   - post_title (string): 포스트 제목, 필수
-   - post_text (string): 포스트 내용, 필수
-   - user_id(int): 작성자 user_id, 필수
+   - title (string): 포스트 제목, 필수
+   - text (string): 포스트 내용, 필수수
 
 ```
 {
-  "post_title": "포스트 제목",
-  "post_text": "포스트 내용"
+  "title": "포스트 제목",
+  "text": "포스트 내용"
   "user_id": 105
 }
 ```
@@ -215,14 +247,17 @@
 4. Response body
    - status (string): created, failed
    - post_id (int): 생성 성공 시, post_id 반환
-   - posting_date (datetime): 생성 성공시, posting_date 반환
+   - created_at (datetime): 생성 성공시, 반환
    - reason (string): 실패 시, 실패 원인
 
 ```
 {
   "status": "created",
   "post_id": 105,
-  "posting_date": '2025-04-26 09:00:00.007'
+  "title" : "title",
+  "text" : "text",
+  "user_id" : 1,
+  "created_at": '2025-04-26 09:00:00.007'
 }
 ```
 
@@ -249,9 +284,9 @@
    - posts (array of objects):
      - post_id (int) : 조회한 포스트 id
      - user_id (int) : 조회한 포스트 작성자 id
-     - post_title (string): 포스트 제목
-     - post_text (string): 포스트 내용
-     - posting_date (datetime): 개시 날짜
+     - title (string): 포스트 제목
+     - text (string): 포스트 내용
+     - created_at (datetime): 개시 날짜
    - reason (string): 실패시, 실패 원인
 
 ```
@@ -259,9 +294,9 @@
   "status": "success",
   "posts":
   [{
-    "post_title": "this is post title",
-    "post_text": "this is post text",
-    "posting_date": "2025-04-26 09:00:00.007",
+    "title": "this is post title",
+    "text": "this is post text",
+    "created_at": "2025-04-26 09:00:00.007",
     "user_id": 1,
     "post_id": 1
   }]
@@ -292,7 +327,8 @@
      - comment_id (int): 성공시, 커맨트 id 반환
      - post_id (int): 성공시, 포스트 id 반환
      - user_id (int): 성공시, 해당 커맨트 작성 유저 id 반환
-     - comment_text (string): 성공시, 커맨트 내용 반환
+     - text (string): 성공시, 커맨트 내용 반환
+     - created_at (datetime): 성공시, 게시 날짜 반환
    - reason (string): 실패시, 실패 원인
 
 ```
@@ -303,7 +339,8 @@
     "comment_id":1,
     "post_id":105,
     "user_id":1,
-    "comment_text":"this is comment text"
+    "text":"this is comment text"
+    "created_at": "2025-04-26 09:00:00.007"
   }]
 }
 ```
@@ -321,28 +358,32 @@
    - POST /posts/<post_id>/comments
      - post_id (int): 커맨트를 작성할 포스트 id
 2. Request body
-   - user_id (int): 커맨트를 작성할 사용자 id, 필수
-   - comment_text (string): 커맨트 내용, 필수
+   - text (string): 커맨트 내용, 필수
 
 ```
 {
   "user_id": 1,
-  "comment_text": "커맨트 내용"
+  "text": "커맨트 내용"
 }
 ```
 
 3. Description
-   - 특정 포스트에 커맨트를 생성한다. user_id, comment_text는 필수 입력값이다.
+   - 특정 포스트에 커맨트를 생성한다. user_id, text는 필수 입력값이다.
    - post_id가 없으면 커맨트 생성을 실패한다.
 4. Response body
    - status (string): created, failed
-   - comment_id (int): 생성 성공 시, post_id 반환
+   - comments (array):
+     - comment_id (int) : 해당 comment id
+     - user_id (int) : comment 작성자 id
+     - post_id (int) : 해당 포스트 id
+     - text (string) : comment 내용
+     - created_at (datatime) : comment 게시 날짜짜
    - reason (string): 실패 시, 실패 원인
 
 ```
 {
   "status": "created",
-  "comment_id": 105,
+  "comments":{...}
 }
 ```
 
@@ -393,8 +434,8 @@
 
 ```
 {
-  "follower_no": 105,
-  "followee_no": 106
+  "follower_id": 105,
+  "followee_id": 106
 }
 ```
 
@@ -403,13 +444,18 @@
    - follower_id, followee_id 조합은 고유로, 중복되어서는 안된다.
 4. Response body
    - status (string): "created" 또는 "failed"
-   - follow_id (int): 생성된 follow 요청 id
+   - follow (array)
+     - follow_id (int) : 생성된 follow 요청 id
+     - follower_id (int) : follow를 신청한 user id
+     - followee_id (int) : follow를 요청받은 user id
+     - status (string) : follow의 현재 상태 , 디폴트 대기 상태
+     - created_at (datetime) : follow 요청 생성 날짜
    - reason (string): 실패 시 원인
 
 ```
 {
   "status": "created",
-  "follow_id": 50
+  "follow" : {...}
 }
 ```
 

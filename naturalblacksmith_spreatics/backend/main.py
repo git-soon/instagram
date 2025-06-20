@@ -15,7 +15,7 @@ def get_connection():
 app = Flask(__name__)
 
 #user 생성 
-@app.route('/users', methods = ['POST'])
+@app.route('/user/create', methods = ['POST'])
 def create_user():
 
     #user data 받아오기
@@ -48,47 +48,113 @@ def create_user():
 
             new_user_id = cursor.lastrowid
             return {
-                "status" : "success",
+                "status" : "user create success",
                 "new user id" : new_user_id
             }
     
     except IntegrityError as e:
         return {
-             "status": "failed", 
+             "status": "user create failed", 
              "reason": str(e) 
         }
-        
 
-#user 삭제 nickname 활용
-@app.route ('/delete_nickname', methods = ['DELETE'])
-def user_delete_nickname():
+#로그인
+@app.route('/user/login', methods = ['POST'])
+def login():
     data = request.get_json()
-    
-    #삭제할 계정 가져오기 
-    nickname = data.get('nickname')
 
-    #sql 연결
+    nickname = data.get('nickname')
+    pw = data.get('pw')
+
+    if not nickname or not pw:
+        return {
+            "status" : "login error",
+            "reason" : "nickname and password required"
+        }     
+    
     conn = get_connection()
 
-    with conn.cursor() as cursor: 
-        sql = """
-        Delete from users
-        where nickname = %s
-        """
-        cursor.execute(sql, (nickname,))
-        conn.commit()
+    #nickname과 password로 user_id 반환
+    try:
+        with conn.cursor() as cursor: 
+            sql_check = """
+            select user_id from users
+            where nickname = %s and password = %s
+            """
+            cursor.execute(sql_check,(nickname, pw))
+            row = cursor.fetchone()
+            conn.commit()
+            
+            if row:
+                return {
+                    "status" : "login success",
+                    "login user" : row['user_id']
+                }
+            else:
+                return {
+                    "status": "login failed",
+                    "reason": "incorrect nickname or password"
+                }
+            
+    except Exception as e:
         return {
-        "status" : "user successfully deleted"
+            "status" : "login failed",
+            "error" : str(e)
         }
 
-#user 삭제 user_id 활용
-@app.route ('/delete_id', methods = ['DELETE'])
-def user_delete_id():
+#password 변경 
+@app.route('/user/<int:user_id>/password_change', methods = ['PATCH'])
+def change_pw(user_id):
     data = request.get_json()
-    
-    #삭제할 계정 가져오기 
-    id = data['id']
 
+    pw = data.get('pw')  
+    new_pw = data.get('newPW') 
+    
+    if not pw or not new_pw:
+        return {
+            "status": "password change failed",
+            "reason": "password and new password required"
+        }
+
+    conn = get_connection()
+
+    with conn.cursor() as cursor:
+        #기존 pw 확인 - user validation 
+        sql_check_pw = """
+        select password from users
+        where user_id = %s
+        """
+        cursor.execute(sql_check_pw, (user_id,))
+        row =  cursor.fetchone()
+
+        #새로운 패스워드로 바꾸기
+        if row['password'] == pw:
+            try:
+                sql_change_pw = """
+                update users 
+                set password = %s
+                where user_id = %s
+                """
+                cursor.execute(sql_change_pw, (new_pw, user_id))
+                conn.commit()
+                return {
+                    "status" : "password change success"
+                }
+
+            except Exception as e:
+                return {
+                    "status" : "password change failed",
+                    "reason" : str(e)
+                }
+        else: 
+            return {
+                "status" : "password change failed",
+                "reason" : "incorrect password"
+            }
+
+#user 삭제 user_id 활용
+@app.route ('/user/<int:user_id>/delete', methods = ['DELETE'])
+def user_delete_id(user_id):
     #sql 연결
     conn = get_connection()
 
@@ -99,11 +165,12 @@ def user_delete_id():
             select * from users 
             where user_id = %s
             """
-            cursor.execute(sql_check, (id,))
+            cursor.execute(sql_check, (user_id,))
             rows = cursor.fetchall()
 
             if not rows:
                 return {
+                    "status" : "delete fail",
                     "error" : "user not found"
                 }
             
@@ -112,55 +179,162 @@ def user_delete_id():
             delete from users
             where user_id = %s
             """
-            cursor.execute(sql_delete, (id, ))
+            cursor.execute(sql_delete, (user_id, ))
             conn.commit()
         
         return {
-            "status" : "success",
-            "deleted user" : id
+            "status" : "delete success",
+            "deleted user" : user_id
         }
 
     except Exception as e:
         return {
-            "status" : "failed",
+            "status" : "delete failed",
             "error" : str(e)
         }
 
 
-#포스팅
-@app.route('/posting', methods = ['POST'])
-def create_post():
+#user 삭제 nickname 활용
+@app.route ('/user/<string:nickname>/delete', methods = ['DELETE'])
+def user_delete_nickname(nickname):
+    #sql 연결
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cursor:
+            #user 찾기 
+            sql_check = """
+            select * from users 
+            where nickname = %s
+            """
+            cursor.execute(sql_check, (nickname,))
+            row = cursor.fetchone()
+
+            if not row:
+                return {
+                    "status" : "delete fail",
+                    "error" : "user not found"
+                }
+            
+            #user 삭제 
+            sql_delete = """
+            delete from users
+            where nickname = %s
+            """
+            cursor.execute(sql_delete, (nickname, ))
+            conn.commit()
+        
+        return {
+            "status" : "delete success",
+        }
+
+    except Exception as e:
+        return {
+            "status" : "delete failed",
+            "error" : str(e)
+        }
+
+
+#포스팅 생성 
+@app.route('/posting/<int:user_id>/create', methods = ['POST'])
+def create_post(user_id):
 
     #user data 받아오기
     data = request.get_json()
     
     post_title = data['title']
-    post_text= data['text']
-    user_id = data['user_id']
+    post_text= data['post_text']
 
     #sql insert data
     conn = get_connection()
 
-    with conn.cursor() as cursor:
+    try:
+        with conn.cursor() as cursor:
+            sql_create = """
+                INSERT INTO posts (title, text, user_id)
+                VALUES (%s, %s, %s)
+                """
+            cursor.execute(sql_create, (post_title, post_text, user_id))
+            new_post_id = cursor.lastrowid
+            conn.commit()
 
-        sql_create = """
-        Insert into post (title, post_text, posting_date, user_id) Values
-        (%s, %s, %s, %s)
-        """
-        cursor.execute(sql_create, (post_title, post_text, post_date, user_id))
-        new_post_id = cursor.lastrowid
+            return {
+                "status": "posting success",
+                "post_id": new_post_id
+            }
 
-        conn.commit()
-        
-        return {
-            "status": "posting success",
-            "post_id": new_post_id
-        }
+    except Exception as e:
+            return {
+                "status": "posting failed",
+                "reason": str(e)
+            }
     
 #포스팅 삭제    
+@app.route('/posting/delete', methods = ['DELETE'])
+def delete_post():
 
+    #user data 받아오기
+    data = request.get_json()
+    
+    post_title = data['title']
 
-  
+    #sql insert data
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            sql_create = """
+            delete from posts
+            where title = %s
+            """
+            cursor.execute(sql_create, (post_title,))
+            delete_row = cursor.rowcount
+            conn.commit()
+        
+            if delete_row > 0:
+                return {
+                    "status": "posting delete success",
+                }
+            else:
+                return {
+                    "status" : "posting delete failed",
+                    "reason" : "no title was found"
+                }
+    except Exception as e:
+        return {
+            "status": "posting delete failed",
+            "reason" : str(e)
+        }
+
+# #포스팅 내용 변경   
+# @app.route('/posting/edit/<string:edit>', methods = ['PATCH'])
+# def edit_post(edit):
+
+#     #user data 받아오기
+#     data = request.get_json()
+    
+#     post_title = data['title']
+#     post_text= data['text']
+#     user_id = data['user_id']
+
+#     #sql insert data
+#     conn = get_connection()
+
+#     with conn.cursor() as cursor:
+
+#         sql_create = """
+#         Insert into post (title, post_text, posting_date, user_id) Values
+#         (%s, %s, %s, %s)
+#         """
+#         cursor.execute(sql_create, (post_title, post_text, post_date, user_id))
+#         new_post_id = cursor.lastrowid
+
+#         conn.commit()
+        
+#         return {
+#             "status": "posting success",
+#             "post_id": new_post_id
+#         }
+
 
 
 app.run(debug=True, host='0.0.0.0', port=5001)

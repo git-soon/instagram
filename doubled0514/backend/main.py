@@ -13,6 +13,7 @@ def get_connection():
      )
 
 # 1. 사용자
+## 사용자 생성
 @app.route("/users",methods = ['POST'])
 def newid():
     data = request.get_json()
@@ -21,6 +22,8 @@ def newid():
     name = data.get('name')
     age = data.get('age')
     email = data.get('email')
+    if not nickname or not password or not name:
+        return {"status":"failed","reason":"nickname,name and password are required"}
     conn = get_connection()
     with conn.cursor() as cursor:
         try:
@@ -30,22 +33,20 @@ def newid():
             """
             cursor.execute(sql, (nickname, name, password, age, email))
             conn.commit()
-
+            user_id = cursor.lastrowid
+            return {"user_id" : user_id} 
         except pymysql.err.IntegrityError as e:
             return { "status": "failed", "reason": str(e) }
-        
-        cursor.execute("SELECT LAST_INSERT_ID()")
-        result = cursor.fetchone()  
-        user_id = result['LAST_INSERT_ID()']
 
-    return {"user_id" : user_id} 
-
+## 로그인 
 @app.route("/users/login", methods=["POST"])
 def login():
     try : 
         data = request.get_json()
-        nickname = data['nickname']
-        password = data['password']
+        nickname = data.get('nickname')
+        password = data.get('password')
+        if not nickname or not password:
+            return {'status': 'failed', 'reason': 'nickname and password are required'}
         conn = get_connection()
         with conn.cursor() as cursor:
             cursor.execute("select * from users where nickname = %s and password = %s",(nickname,password))
@@ -53,10 +54,9 @@ def login():
         if not user :
             return {'status':'failed','reason':'wrong nickname or password'}
         return {'status':'success','user_id':user['user_id']}
-    
     except Exception as e:
         return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}
-
+## 사용자 조회
 @app.route('/users')
 def check():
     try:    
@@ -76,7 +76,7 @@ def check():
     
     except Exception as e:
         return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}
-
+## 사용자 수정
 @app.route('/users/<user_id>/<password>', methods = ['PUT'])
 def edit(user_id,password):
     try:
@@ -136,14 +136,17 @@ def delete(user_id, password):
 
 
 # post
-@app.route('/posts/<user_id>',methods = ['POST'])
-def post (user_id):
+## 포스트 업로드
+@app.route('/post',methods = ['POST'])
+def post ():
     try:    
         data = request.get_json()
+        user_id = data.get('user_id')
         title = data.get('title')
         text = data.get('text')
         created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
+        if not user_id or not text or not title :
+            return {'status':'failed','reason':'user_id,title,text are required'}
         conn = get_connection()
         with conn.cursor() as cursor:
             cursor.execute("SELECT 1 FROM users WHERE user_id = %s", (user_id,))
@@ -151,7 +154,7 @@ def post (user_id):
             if not result:
                 return {'status': 'failed', 'reason': 'invalid user_id'}
 
-            cursor.execute("insert into post (user_id,title,text,created_at) values (%s,%s,%s,%s) ",(user_id,title,text,created_at))
+            cursor.execute("insert into posts (user_id,title,text,created_at) values (%s,%s,%s,%s) ",(user_id,title,text,created_at))
             conn.commit()
             post_id = cursor.lastrowid
 
@@ -159,7 +162,8 @@ def post (user_id):
     except Exception as e:
         return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}   
 
-@app.route('/posts')
+## 포스트 조회
+@app.route('/post')
 def viewpost():
     
     try: 
@@ -168,10 +172,10 @@ def viewpost():
         user_id = data.get('user_id')
         nickname = data.get('nickname')
         title = data.get('title')
-        
+        created_at = data.get('created_at')
         query = """
-                SELECT u.nickname, p.title, p.text
-                FROM post p
+                SELECT u.nickname, p.title, p.text, p.created_at
+                FROM posts p
                 JOIN users u ON p.user_id = u.user_id
                 WHERE 1=1
             """
@@ -189,7 +193,10 @@ def viewpost():
         if title:
             query += " AND p.title = %s"
             params.append(title)
-
+        if created_at and "~" in created_at:
+            start, end = created_at.split("~")
+            query += " AND created_at BETWEEN %s AND %s"
+            params.extend([start.strip(), end.strip()])
         conn = get_connection()
         with conn.cursor() as cursor:
             cursor.execute(query, tuple(params))
@@ -198,20 +205,22 @@ def viewpost():
                 return {"stats":"failed","reason":"cannot find posts"}
         return result
     except Exception as e:
-        return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}  
-    
-@app.route('/posts/<post_id>/comment/<user_id>',methods =["POST"])
+        return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'} 
+     
+## 포스트의 코멘트 작성
+@app.route('/post/<post_id>/comment/<user_id>',methods =["POST"])
 def comment(post_id,user_id):
     try:
         data = request.get_json()
-        comment = data['comment']
+        text = data.get('text')
         conn = get_connection()
         with conn.cursor() as cursor:
             cursor.execute('select 1 from users where user_id = %s',(user_id))
             user = cursor.fetchone()
+
             if not user:
-                return {'status':'faield','reason':'invalid user'}
-            cursor.execute("insert into comment (user_id,post_id,comment) values (%s,%s,%s)",(user_id,post_id,comment)) 
+                return {'status':'failed','reason':'invalid user'}
+            cursor.execute("insert into comments (user_id,post_id,text) values (%s,%s,%s)",(user_id,post_id,text)) 
             conn.commit()
             comment_id = cursor.lastrowid
 
@@ -219,22 +228,34 @@ def comment(post_id,user_id):
     except Exception as e:
         return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}  
     
-@app.route('/posts/<post_id>/comment')
+## 포스트 코멘트 조회
+@app.route('/post/<post_id>/comment')
 def viewcomment(post_id):
     try:
         conn = get_connection()
         with conn.cursor() as cursor:
-            cursor.execute("""select p.title as "글제목", p.text as "내용", p.user_id as "글쓴이", c.user_id as"댓글단이", c.comment from comment c 
-                        join post p on c.post_id = p.post_id
-                        where c.post_id = %s""",(post_id,))
+            cursor.execute("""SELECT 
+                    p.title AS 글제목,
+                    p.text AS 내용,
+                    writer.nickname AS 글쓴이,
+                    commenter.nickname AS 댓글단이,
+                    c.text AS 댓글내용
+                FROM comments c
+                JOIN posts p ON c.post_id = p.post_id
+                JOIN users writer ON p.user_id = writer.user_id
+                JOIN users commenter ON c.user_id = commenter.user_id
+                WHERE c.post_id = %s""",(post_id,))
             result = cursor.fetchall()
         if not result :
             return {'satus':'faield', 'reason':'Invalid Input'}
         return result
     except Exception as e:
         return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}  
-# social
 
+
+
+# social
+## 팔로우하기 
 @app.route('/follow/<follower_id>/<followee_id>',methods = ['POST'])
 def follow(follower_id,followee_id):
     try:
@@ -256,8 +277,8 @@ def follow(follower_id,followee_id):
     except Exception as e:
         return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}  
 
-#팔로우한 목록
-@app.route('/follow/following/<follower_id>')
+##팔로우한 목록 조회
+@app.route('/follow/following/<follower_id>') #follower로서 following하고 있는 목록 보는 것
 def viewfollowing (follower_id):
     try:
         conn = get_connection()
@@ -270,7 +291,7 @@ def viewfollowing (follower_id):
                     select u.user_id, u.nickname, u.name, u.email
                         from follows f 
                         join users u on f.followee_id = u.user_id
-                        where f.follower_id = %s
+                        where f.follower_id = %s and f.status = 'accepted'
                         """,(follower_id,))
             followees = cursor.fetchall()
         following_list = []
@@ -284,7 +305,8 @@ def viewfollowing (follower_id):
         return {'following': following_list}
     except Exception as e:
         return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}  
-# 팔로우 요청한 목록
+    
+## 팔로우 요청 목록 조회
 @app.route('/follow/request/<followee_id>')
 def viewfollower(followee_id):
     try:
@@ -313,12 +335,174 @@ def viewfollower(followee_id):
         return {'followers': follower_list}
     except Exception as e:
         return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}  
-'''
-@app.route('/follow/request/<followee_id>', methods = '[POST]')
+
+# 팔로우 요청 수락/거절
+@app.route('/follow/request/<followee_id>', methods = ['PUT'])
 def accpetfollow(followee_id):
+    try:
+        data = request.get_json()
+        status = data.get('status') 
+        follower_id = data.get('follower_id')
+        if not follower_id:
+            return {'status': 'failed', 'reason': 'follower_id is required'}
+        if status not in ("accepted","blocked"):
+            return {'status':'failed','reason':"status must be accepted or blocked"}
+        conn = get_connection()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM users WHERE user_id = %s", (follower_id,))
+            if not cursor.fetchone():
+                return {'status': 'failed', 'reason': 'Invalid follower_id'}
+            cursor.execute("SELECT 1 FROM users WHERE user_id = %s", (followee_id,))
+            if not cursor.fetchone():
+                return {'status': 'failed', 'reason': 'Invalid followee_id'}
+            
+           
+            # follows에 해당 요청이 있는지 먼저 확인
+            cursor.execute("""
+                SELECT 1 FROM follows
+                WHERE follower_id = %s AND followee_id = %s and status = 'pending'
+            """, (follower_id, followee_id))
+            if not cursor.fetchone():
+                return {'status': 'failed', 'reason': 'Follow request does not exist'}            
+            cursor.execute("""
+                UPDATE follows SET status = %s
+                WHERE follower_id = %s and followee_id = %s and status = 'pending' """ , (status, follower_id, followee_id))
+            conn.commit()
+        return {"status":"success"}
+    except Exception as e:
+        return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}  
+# DM
+## DM 보내기
+@app.route('/message/<sender_id>/<receiver_id>',methods=['POST'])
+def sendm(sender_id,receiver_id):
+    try:
+        data = request.get_json()
+        text = data.get('text')
+        created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        if not sender_id or not receiver_id :
+            return {'status':'failed','reason':'user_id is required'}
+        conn = get_connection()
+        with conn.cursor() as cursor:
+            # sender_id 존재 확인
+            cursor.execute("SELECT 1 FROM users WHERE user_id = %s", (sender_id,))
+            if not cursor.fetchone():
+                return {'status': 'failed', 'reason': 'Invalid sender_id'}
+            # receiver_id 존재 확인
+            cursor.execute("SELECT 1 FROM users WHERE user_id = %s", (receiver_id,))
+            if not cursor.fetchone():
+                return {'status': 'failed', 'reason': 'Invalid receiver_id'}
+            cursor.execute("""insert into messages (sender_id,receiver_id,text,created_at) values (%s,%s,%s,%s)""",(sender_id,receiver_id,text,created_at))
+            conn.commit()
+            message_id = cursor.lastrowid
+        return{"status":"success","message_id":message_id}
+    except Exception as e:
+        return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}  
     
-    conn = get_connection()
-    with conn.cursor() as cursor:
-        cursor.execute
-'''
+## 받은 DM 조회하기
+@app.route('/message/<receiver_id>')
+def viewdm(receiver_id):
+    try:
+        data = request.get_json()
+        sender_id = data.get('sender_id')
+        created_at = data.get('created_at')
+        message_id = data.get('message_id')
+        text = data.get('text')
+        conn = get_connection()
+        if not receiver_id :
+            return {'status':'failed','reason':'user_id is required'}
+        with conn.cursor() as cursor:
+             # 기본 SELECT 문
+            base_query = """
+                select sender_id, message_id, text, created_at
+                from messages
+                where receiver_id = %s
+            """
+            params = [receiver_id]
+
+            # 조건별 필터링
+            if sender_id:
+                base_query += " AND sender_id = %s"
+                params.append(sender_id)
+
+            if message_id:
+                base_query += " AND message_id = %s"
+                params.append(message_id)
+
+            if text:
+                base_query += " AND text LIKE %s"
+                params.append(f"%{text}%")  # 부분 검색
+
+            if created_at and "~" in created_at:
+                start, end = created_at.split("~")
+                base_query += " AND created_at BETWEEN %s AND %s"
+                params.extend([start.strip(), end.strip()])
+
+            base_query += " ORDER BY created_at DESC"
+
+            cursor.execute(base_query, tuple(params))
+            text = cursor.fetchall()
+            if cursor.rowcount == 0:
+                return {'status': 'failed', 'reason': 'No matching messages'}
+        
+        return {'messages': text}
+
+
+    except Exception as e:
+        return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}           
+
+## 받은 DM 삭제하기
+@app.route('/message/<receiver_id>',methods =['DELETE'])
+def deletedm(receiver_id):
+    try:
+        data = request.get_json()
+        sender_id = data.get('sender_id')
+        created_at = data.get('created_at')
+        message_id = data.get('message_id')
+        text = data.get('text')
+        conn = get_connection()
+        if not receiver_id :
+            return {'status':'failed','reason':'user_id is required'}
+        with conn.cursor() as cursor:
+            # receiver_id 존재 확인
+            cursor.execute("SELECT 1 FROM messages WHERE receiver_id = %s", (receiver_id,))
+            if not cursor.fetchone():
+                return{'status':'failed','reason':'invalid user'}
+            # 기본 SELECT 문
+            base_query = """
+                delete from messages
+                where receiver_id = %s
+            """
+            params = [receiver_id]
+
+            # 조건별 필터링
+            if sender_id:
+                base_query += " AND sender_id = %s"
+                params.append(sender_id)
+
+            if message_id:
+                base_query += " AND message_id = %s"
+                params.append(message_id)
+
+            if text:
+                base_query += " AND text LIKE %s"
+                params.append(f"%{text}%")  # 부분 검색
+
+            if created_at:
+             # 범위로 조회 
+                start, end = created_at.split("~")
+                base_query += " AND created_at BETWEEN %s AND %s"
+                params.extend([start.strip(), end.strip()])
+            base_query += " ORDER BY created_at DESC"
+            cursor.execute(base_query, tuple(params))
+            
+            if cursor.rowcount == 0:
+                return {'status': 'failed', 'reason': 'No matching messages to delete'}
+            
+            conn.commit()
+
+        return {'status':'deleted'}
+
+    except Exception as e:
+        return {'status': 'failed', 'reason': f'Unexpected error: {str(e)}'}   
+    
 app.run(debug=True,host = '0.0.0.0', port = 5000)

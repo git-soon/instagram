@@ -66,17 +66,10 @@
  "user_id" : 105
 }
 {
-  "status" : "failed",
-  "reason" : "nickname ERROR"
+ "status": "failed",
+ "reason": "nickname or password ERROR"
 }
-{
-  "status" : "failed",
-  "reason" : "password ERROR"
-}
-{
-  "status": "failed",
-  "reason": "Missing required field: password"
-}
+
 ~~~
 
 ## 사용자 정보 조회
