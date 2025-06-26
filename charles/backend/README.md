@@ -226,7 +226,7 @@
 
 ## 포스트 올리기
 1. Endpoint
-   - POST /posts
+   - POST /post/create
 
 2. Request body
    - user_no   (int, required): 작성자 user_no
