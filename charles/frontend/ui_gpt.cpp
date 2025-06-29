@@ -3,8 +3,11 @@
 #include <stdlib.h>
 #include "httplib.h"
 #include "json.hpp"
-#include <my_sql.h>
+#include <windows.h>
 
+int main() {
+
+}
 using namespace std;
 using namespace httplib;
 using namespace nlohmann;
@@ -440,6 +443,8 @@ void m_2_1_4_post_m() {
                 
             case 5:
             return m_2_user(); // 뒤로
+        }
+}
 }
 
 void m_2_1_5_del_user() {
@@ -494,6 +499,7 @@ void m_3_post() {
 int main() {
 
     m_0_mainMenu();
-
-    return 1;
+    SetConsoleOutputCP(CP_UTF8);  // 콘솔 출력 인코딩을 UTF-8로 설정
+    std::cout << u8"한글 출력 테스트" << std::endl;
+    return 0;
 }

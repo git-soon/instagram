@@ -5,6 +5,7 @@ import bcrypt
 from flask import Flask, request, jsonify, session
 from pymysql.cursors import DictCursor
 
+
 app = Flask(__name__)
 
 # MySQL 연결 함수

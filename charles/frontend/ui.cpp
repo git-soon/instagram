@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include "httplib.h"
 #include "json.hpp"
-#include <my_sql.h>
 
 using namespace std;
 using namespace httplib;
